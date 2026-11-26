@@ -1,0 +1,54 @@
+{
+  "name": "@moonwitness/rocksoul-core",
+  "version": "1.0.0",
+  "description": "Rocksoul Zero-ORM Cognitive Core: deterministic DAG planner, Merkle PCW verifier, R0-R4 risk & overlap policy engine, and G0-G6 evaluation harness",
+  "type": "module",
+  "engines": {
+    "bun": ">=1.2.0",
+    "node": ">=22.0.0"
+  },
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/src/index.js"
+    },
+    "./dag-engine": {
+      "types": "./dist/src/dag-engine.d.ts",
+      "import": "./dist/src/dag-engine.js"
+    },
+    "./merkle-pcw": {
+      "types": "./dist/src/merkle-pcw.d.ts",
+      "import": "./dist/src/merkle-pcw.js"
+    },
+    "./risk-policy": {
+      "types": "./dist/src/risk-policy.d.ts",
+      "import": "./dist/src/risk-policy.js"
+    },
+    "./eval-gates": {
+      "types": "./dist/src/eval-gates.d.ts",
+      "import": "./dist/src/eval-gates.js"
+    },
+    "./server": {
+      "types": "./dist/src/server.d.ts",
+      "import": "./dist/src/server.js"
+    }
+  },
+  "files": [
+    "dist",
+    "scripts"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.test.json",
+    "test": "bun test",
+    "check:zero-orm": "node scripts/check-zero-orm-imports.mjs",
+    "start": "bun run src/server.ts",
+    "start:dist": "bun dist/src/server.js"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.5",
+    "typescript": "~5.7.3"
+  }
+}
