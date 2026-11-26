@@ -30,6 +30,10 @@ describe('mw-rocksoul-core HTTP server', () => {
     expect(body.package).toBe('@moonwitness/rocksoul-core');
     expect(body.zeroOrm).toBe(true);
     expect(body.endpoints).toContain('POST /v1/evals/g0-g6');
+    expect(body.endpoints).toContain('POST /v1/router/select');
+    expect(body.endpoints).toContain('GET /v1/sessions');
+    expect(body.endpoints).toContain('POST /v1/sessions');
+    expect(body.endpoints).toContain('GET /v1/sessions/:id');
   });
 
   test('POST /v1/plans/validate validates DAG waves, cycles, and node ownership', async () => {
@@ -236,5 +240,55 @@ describe('mw-rocksoul-core HTTP server', () => {
       body: '{invalid-json',
     });
     expect(badJsonRes.status).toBe(400);
+  });
+
+  test('POST /v1/router/select routes deterministic eco models', async () => {
+    const res = await fetch(`${baseUrl}/v1/router/select`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        taskProfile: { complexity: 'architecture' },
+        budgets: { dailyTokenLimit: 100000, dailyTokensUsed: 1000 },
+        classification: { dataClassification: 'cloud_eligible' },
+      }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { modelId: string; tier: string; provider: string };
+    expect(body.provider).toBe('anthropic');
+    expect(body.tier).toBe('premium');
+  });
+
+  test('GET /v1/sessions and POST /v1/sessions manage persistent sessions and turns', async () => {
+    const createRes = await fetch(`${baseUrl}/v1/sessions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ title: 'Server Session', project: 'mw-core' }),
+    });
+    expect(createRes.status).toBe(201);
+    const createBody = (await createRes.json()) as { session: { id: string; title: string } };
+    expect(createBody.session.title).toBe('Server Session');
+    const sessionId = createBody.session.id;
+
+    const listRes = await fetch(`${baseUrl}/v1/sessions`);
+    expect(listRes.status).toBe(200);
+    const listBody = (await listRes.json()) as { sessions: Array<{ id: string }> };
+    expect(listBody.sessions.some((s) => s.id === sessionId)).toBe(true);
+
+    const turnRes = await fetch(`${baseUrl}/v1/sessions/${sessionId}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ role: 'user', content: 'Ping server session' }),
+    });
+    expect(turnRes.status).toBe(201);
+
+    const getRes = await fetch(`${baseUrl}/v1/sessions/${sessionId}`);
+    expect(getRes.status).toBe(200);
+    const getBody = (await getRes.json()) as {
+      session: { id: string };
+      turns: Array<{ content: string }>;
+    };
+    expect(getBody.session.id).toBe(sessionId);
+    expect(getBody.turns.length).toBe(1);
+    expect(getBody.turns[0].content).toBe('Ping server session');
   });
 });

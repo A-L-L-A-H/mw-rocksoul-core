@@ -33,6 +33,14 @@
     "./server": {
       "types": "./dist/src/server.d.ts",
       "import": "./dist/src/server.js"
+    },
+    "./eco-router": {
+      "types": "./dist/src/eco-router.d.ts",
+      "import": "./dist/src/eco-router.js"
+    },
+    "./session-store": {
+      "types": "./dist/src/session-store.d.ts",
+      "import": "./dist/src/session-store.js"
     }
   },
   "files": [

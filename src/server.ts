@@ -33,6 +33,18 @@ import {
   type TargetZone,
 } from './risk-policy.js';
 
+import {
+  selectEcoModel,
+  type BudgetConfig,
+  type RouteClassification,
+  type TaskProfile,
+} from './eco-router.js';
+import {
+  PersistentSessionStore,
+  type SessionAppendTurnInput,
+  type SessionCreateInput,
+} from './session-store.js';
+
 export const DEFAULT_CORE_PORT = 4520;
 export const SERVICE_NAME = 'mw-rocksoul-core';
 export const PACKAGE_NAME = '@moonwitness/rocksoul-core';
@@ -45,17 +57,23 @@ export const CORE_ENDPOINTS = Object.freeze([
   'POST /v1/pcw/verify',
   'POST /v1/swarm/check-overlap',
   'POST /v1/evals/g0-g6',
+  'POST /v1/router/select',
+  'GET /v1/sessions',
+  'POST /v1/sessions',
+  'GET /v1/sessions/:id',
 ]);
 
 export interface CoreServerContext {
   readonly port: number;
   readonly approvalRegistry: SingleUseApprovalRegistry;
+  readonly sessionStore: PersistentSessionStore;
 }
 
 export interface CoreServerOptions {
   readonly port?: number;
   readonly hostname?: string;
   readonly approvalRegistry?: SingleUseApprovalRegistry;
+  readonly sessionStore?: PersistentSessionStore;
 }
 
 const VALID_RISK_TIERS = new Set<string>(['R0', 'R1', 'R2', 'R3', 'R4']);
@@ -515,11 +533,16 @@ function parseThresholds(raw: unknown): Partial<EvalGateThresholds> | null {
   return result as Partial<EvalGateThresholds>;
 }
 
+const defaultSessionStore = new PersistentSessionStore(
+  process.env.ROCKSOUL_SESSION_STORE_PATH ?? '.rocksoul/sessions.json'
+);
+
 export async function handleCoreRequest(
   request: Request,
   context: CoreServerContext = {
     port: DEFAULT_CORE_PORT,
     approvalRegistry: new SingleUseApprovalRegistry(),
+    sessionStore: defaultSessionStore,
   }
 ): Promise<Response> {
   const url = new URL(request.url);
@@ -547,7 +570,7 @@ export async function handleCoreRequest(
       version: SERVICE_VERSION,
       port: context.port,
       zeroOrm: true,
-      modules: ['dag-engine', 'merkle-pcw', 'risk-policy', 'eval-gates'],
+      modules: ['dag-engine', 'merkle-pcw', 'risk-policy', 'eval-gates', 'eco-router', 'session-store'],
       endpoints: CORE_ENDPOINTS,
       timestamp: new Date().toISOString(),
     });
@@ -828,6 +851,148 @@ export async function handleCoreRequest(
     return jsonResponse(report);
   }
 
+  if (pathname === '/v1/router/select') {
+    if (request.method !== 'POST') {
+      return jsonResponse({ error: 'Method Not Allowed' }, 405);
+    }
+    const parsedBody = await readJsonBody(request);
+    if (!parsedBody.ok) return parsedBody.response;
+
+    const body = parsedBody.value;
+    if (!isRecord(body)) {
+      return jsonResponse({ error: 'Request body must be a JSON object.' }, 400);
+    }
+
+    const taskProfile: TaskProfile = isRecord(body.taskProfile)
+      ? {
+          ...(typeof body.taskProfile.complexity === 'string'
+            ? { complexity: body.taskProfile.complexity }
+            : {}),
+          ...(typeof body.taskProfile.taskFamily === 'string'
+            ? { taskFamily: body.taskProfile.taskFamily }
+            : {}),
+          ...(typeof body.taskProfile.estimatedTokens === 'number'
+            ? { estimatedTokens: body.taskProfile.estimatedTokens }
+            : {}),
+          ...(typeof body.taskProfile.requiresReasoning === 'boolean'
+            ? { requiresReasoning: body.taskProfile.requiresReasoning }
+            : {}),
+        }
+      : {};
+
+    const rawBudgets = isRecord(body.budgets) ? body.budgets : {};
+    const budgets: BudgetConfig = {
+      dailyTokenLimit:
+        typeof rawBudgets.dailyTokenLimit === 'number' ? rawBudgets.dailyTokenLimit : 1_000_000,
+      dailyTokensUsed:
+        typeof rawBudgets.dailyTokensUsed === 'number' ? rawBudgets.dailyTokensUsed : 0,
+      ...(typeof rawBudgets.maxTokensPerRequest === 'number'
+        ? { maxTokensPerRequest: rawBudgets.maxTokensPerRequest }
+        : {}),
+    };
+
+    const rawClassification = isRecord(body.classification) ? body.classification : {};
+    const classification: RouteClassification = {
+      dataClassification: isDataClassification(rawClassification.dataClassification)
+        ? rawClassification.dataClassification
+        : 'cloud_eligible',
+      ...(typeof rawClassification.airGapped === 'boolean'
+        ? { airGapped: rawClassification.airGapped }
+        : {}),
+    };
+
+    const decision = selectEcoModel(taskProfile, budgets, classification);
+    return jsonResponse(decision);
+  }
+
+  if (pathname === '/v1/sessions') {
+    if (request.method === 'GET') {
+      const limitParam = url.searchParams.get('limit');
+      const limit = limitParam !== null ? parseInt(limitParam, 10) : 100;
+      const sessions = await context.sessionStore.listSessions(Number.isNaN(limit) ? 100 : limit);
+      return jsonResponse({ sessions });
+    }
+
+    if (request.method === 'POST') {
+      const parsedBody = await readJsonBody(request);
+      if (!parsedBody.ok) return parsedBody.response;
+
+      const body = parsedBody.value;
+      if (!isRecord(body)) {
+        return jsonResponse({ error: 'Request body must be a JSON object.' }, 400);
+      }
+
+      const input: SessionCreateInput = {
+        ...(typeof body.title === 'string' ? { title: body.title } : {}),
+        ...(typeof body.workDir === 'string' ? { workDir: body.workDir } : {}),
+        ...(typeof body.project === 'string' ? { project: body.project } : {}),
+        ...(typeof body.agentProfile === 'string' ? { agentProfile: body.agentProfile } : {}),
+        ...(typeof body.model === 'string' ? { model: body.model } : {}),
+        ...(typeof body.mode === 'string' ? { mode: body.mode } : {}),
+      };
+
+      const session = await context.sessionStore.createSession(input);
+      return jsonResponse({ session }, 201);
+    }
+
+    return jsonResponse({ error: 'Method Not Allowed' }, 405);
+  }
+
+  if (pathname.startsWith('/v1/sessions/')) {
+    const sessionId = pathname.slice('/v1/sessions/'.length).trim();
+    if (sessionId.length === 0) {
+      return jsonResponse({ error: 'Session ID is required.' }, 400);
+    }
+
+    if (request.method === 'GET') {
+      const sessionData = await context.sessionStore.getSession(sessionId);
+      if (!sessionData) {
+        return jsonResponse({ error: 'Session not found.', sessionId }, 404);
+      }
+      return jsonResponse(sessionData);
+    }
+
+    if (request.method === 'POST') {
+      // Append turn to session
+      const parsedBody = await readJsonBody(request);
+      if (!parsedBody.ok) return parsedBody.response;
+
+      const body = parsedBody.value;
+      if (!isRecord(body) || typeof body.role !== 'string' || typeof body.content !== 'string') {
+        return jsonResponse(
+          { error: 'Invalid turn payload: role and content are required strings.' },
+          400
+        );
+      }
+
+      const validRoles = new Set(['system', 'user', 'assistant', 'tool']);
+      if (!validRoles.has(body.role)) {
+        return jsonResponse({ error: 'role must be system, user, assistant, or tool.' }, 400);
+      }
+
+      const turnInput: SessionAppendTurnInput = {
+        role: body.role as 'system' | 'user' | 'assistant' | 'tool',
+        content: body.content,
+        ...(Array.isArray(body.toolCalls)
+          ? { toolCalls: body.toolCalls as SessionAppendTurnInput['toolCalls'] }
+          : {}),
+        ...(typeof body.toolCallId === 'string' ? { toolCallId: body.toolCallId } : {}),
+        ...(typeof body.toolName === 'string' ? { toolName: body.toolName } : {}),
+        ...(isRecord(body.meta) ? { meta: body.meta as SessionAppendTurnInput['meta'] } : {}),
+      };
+
+      try {
+        const turn = await context.sessionStore.appendTurn(sessionId, turnInput);
+        return jsonResponse({ turn }, 201);
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        return jsonResponse({ error: message }, 404);
+      }
+    }
+
+    return jsonResponse({ error: 'Method Not Allowed' }, 405);
+  }
+
   return jsonResponse({ error: 'Not Found', path: pathname }, 404);
 }
 
@@ -840,6 +1005,7 @@ export function createCoreServer(options: CoreServerOptions = {}): ReturnType<ty
       ? envPort
       : DEFAULT_CORE_PORT);
   const approvalRegistry = options.approvalRegistry ?? new SingleUseApprovalRegistry();
+  const sessionStore = options.sessionStore ?? defaultSessionStore;
 
   return Bun.serve({
     port: resolvedPort,
@@ -848,6 +1014,7 @@ export function createCoreServer(options: CoreServerOptions = {}): ReturnType<ty
       return handleCoreRequest(request, {
         port: runningServer.port ?? resolvedPort,
         approvalRegistry,
+        sessionStore,
       });
     },
   });
@@ -865,3 +1032,4 @@ if (import.meta.main) {
     })
   );
 }
+
