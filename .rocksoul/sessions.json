@@ -44,6 +44,21 @@
       "rtkTokensSaved": 0,
       "createdAt": "2026-11-27T11:30:30.788Z",
       "updatedAt": "2026-11-27T11:30:30.790Z"
+    },
+    {
+      "id": "sess_1795780063897_ctsqvhgm",
+      "title": "Server Session",
+      "workDir": "Z:\\repo\\mw-rocksoul-core",
+      "project": "mw-core",
+      "agentProfile": "rocksoul",
+      "model": "gemini-2.0-flash",
+      "mode": "act",
+      "status": "idle",
+      "totalTokensIn": 0,
+      "totalTokensOut": 0,
+      "rtkTokensSaved": 0,
+      "createdAt": "2026-11-27T11:47:43.897Z",
+      "updatedAt": "2026-11-27T11:47:43.901Z"
     }
   ],
   "turns": {
@@ -75,6 +90,16 @@
         "role": "user",
         "content": "Ping server session",
         "createdAt": "2026-11-27T11:30:30.790Z"
+      }
+    ],
+    "sess_1795780063897_ctsqvhgm": [
+      {
+        "id": "turn_sess_1795780063897_ctsqvhgm_1",
+        "sessionId": "sess_1795780063897_ctsqvhgm",
+        "seq": 1,
+        "role": "user",
+        "content": "Ping server session",
+        "createdAt": "2026-11-27T11:47:43.901Z"
       }
     ]
   }
