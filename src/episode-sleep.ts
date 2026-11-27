@@ -29,6 +29,8 @@ export interface InvariantProposal {
   readonly ruleText: string;
   readonly derivedFromEpisodes: readonly string[];
   readonly confidence: number;
+  readonly automatedPromotionAllowed: false;
+  readonly status: 'proposed';
 }
 
 export interface ConsolidationReport {
@@ -140,12 +142,14 @@ export class EpisodeSleepEngine {
 
       consolidatedClusters++;
       const ruleId = `inv_${sha256(pattern).slice(0, 12)}`;
-      const proposal: InvariantProposal = {
+      const proposal: InvariantProposal = Object.freeze({
         ruleId,
         ruleText: `Never recur failure pattern: ${pattern} (observed across ${group.length} episodes)`,
-        derivedFromEpisodes: group.map((e) => e.id),
+        derivedFromEpisodes: Object.freeze(group.map((e) => e.id)),
         confidence: Math.min(1.0, 0.5 + group.length * 0.15),
-      };
+        automatedPromotionAllowed: false as const,
+        status: 'proposed' as const,
+      });
       proposals.push(proposal);
 
       // Mark episodes as consolidated

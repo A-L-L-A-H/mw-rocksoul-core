@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'bun:test';
-import { selectEcoModel, type BudgetConfig, type RouteClassification, type TaskProfile } from '../src/eco-router.js';
+import {
+  escalateModelTier,
+  ESCALATION_LADDER,
+  selectEcoModel,
+  type BudgetConfig,
+  type RouteClassification,
+  type TaskProfile,
+} from '../src/eco-router.js';
 
 describe('Eco-Quota Model Router', () => {
   const healthyBudgets: BudgetConfig = {
@@ -91,5 +98,66 @@ describe('Eco-Quota Model Router', () => {
     expect(decisionSimple.budgetExceeded).toBe(true);
     expect(decisionSimple.fallbackApplied).toBe(true);
     expect(decisionSimple.modelId).toBe('groq/llama-3.1-8b-instant');
+  });
+});
+
+describe('V40 Episode-Driven Model Tier Escalator (flash -> neon -> argon)', () => {
+  it('stays on flash when no failure or complexity escalation triggers are met', () => {
+    expect(ESCALATION_LADDER).toEqual(['flash', 'neon', 'argon']);
+    const decision = escalateModelTier({ recentFailures: 0, complexity: 'boilerplate', riskLevel: 'low' });
+    expect(decision.previousTier).toBe('flash');
+    expect(decision.targetTier).toBe('flash');
+    expect(decision.escalated).toBe(false);
+    expect(decision.stepsEscalated).toBe(0);
+    expect(decision.modelHint).toBe('gemini-3.8-flash-low');
+  });
+
+  it('escalates flash -> neon on initial episode failure or complex/high-risk task', () => {
+    const byFailure = escalateModelTier({ recentFailures: 1, complexity: 'balanced' });
+    expect(byFailure.targetTier).toBe('neon');
+    expect(byFailure.escalated).toBe(true);
+    expect(byFailure.stepsEscalated).toBe(1);
+    expect(byFailure.modelHint).toBe('gemini-4-neon-low');
+
+    const byComplexity = escalateModelTier({ recentFailures: 0, complexity: 'complex' });
+    expect(byComplexity.targetTier).toBe('neon');
+    expect(byComplexity.escalated).toBe(true);
+  });
+
+  it('escalates neon -> argon on repeated failure or starting from neon with a failure', () => {
+    const fromNeon = escalateModelTier({ recentFailures: 1 }, { startingTier: 'neon' });
+    expect(fromNeon.previousTier).toBe('neon');
+    expect(fromNeon.targetTier).toBe('argon');
+    expect(fromNeon.escalated).toBe(true);
+    expect(fromNeon.stepsEscalated).toBe(1);
+    expect(fromNeon.modelHint).toBe('gemini-4-argon-low');
+
+    const byThreshold = escalateModelTier({ recentFailures: 3, complexity: 'balanced' });
+    expect(byThreshold.previousTier).toBe('flash');
+    expect(byThreshold.targetTier).toBe('argon');
+    expect(byThreshold.stepsEscalated).toBe(2);
+  });
+
+  it('escalates directly to argon for architecture, security, or critical risk', () => {
+    const bySecurity = escalateModelTier({ recentFailures: 0, complexity: 'security' });
+    expect(bySecurity.targetTier).toBe('argon');
+    expect(bySecurity.escalated).toBe(true);
+
+    const byCriticalRisk = escalateModelTier({ recentFailures: 0, riskLevel: 'critical' });
+    expect(byCriticalRisk.targetTier).toBe('argon');
+    expect(byCriticalRisk.escalated).toBe(true);
+  });
+
+  it('escalates based on recurring episodic pitfalls and never downgrades from argon', () => {
+    const pitfallOnly = escalateModelTier({ recentFailures: 0, recurringPitfallCount: 2 });
+    expect(pitfallOnly.targetTier).toBe('neon');
+
+    const pitfallAndFailure = escalateModelTier({ recentFailures: 1, recurringPitfallCount: 2 });
+    expect(pitfallAndFailure.targetTier).toBe('argon');
+
+    const stayArgon = escalateModelTier({ recentFailures: 0, complexity: 'lint' }, { startingTier: 'argon' });
+    expect(stayArgon.targetTier).toBe('argon');
+    expect(stayArgon.escalated).toBe(false);
+    expect(stayArgon.stepsEscalated).toBe(0);
   });
 });
