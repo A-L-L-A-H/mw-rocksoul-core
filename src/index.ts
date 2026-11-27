@@ -5,4 +5,5 @@ export * from './eval-gates.js';
 export * from './eco-router.js';
 export * from './session-store.js';
 export * from './server.js';
+export * from './episode-sleep.js';
 
