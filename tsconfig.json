@@ -16,7 +16,13 @@
     "declarationMap": true,
     "sourceMap": true,
     "outDir": "./dist",
-    "rootDir": "."
+    "baseUrl": ".",
+    "paths": {
+      "@moonwitness/contracts": [
+        "../mw-core/packages/contracts/src/index.ts",
+        "./src/contracts/standalone-compat.ts"
+      ]
+    }
   },
   "include": ["src/**/*.ts"],
   "exclude": ["node_modules", "dist", "tests"]

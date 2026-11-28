@@ -72,6 +72,35 @@ describe('EpisodeSleepEngine (Non-REM Sleep Consolidation)', () => {
     expect(report.consolidatedClusters).toBe(1);
     expect(report.synthesizedInvariants.length).toBe(1);
     expect(report.synthesizedInvariants[0].ruleText).toContain('unhandled_async_rejection');
+    expect(report.synthesizedInvariants[0].automatedPromotionAllowed).toBe(false);
+    expect(report.synthesizedInvariants[0].status).toBe('proposed');
+    expect(Object.isFrozen(report.synthesizedInvariants[0])).toBe(true);
     expect(report.synthesizedInvariants.some((inv) => inv.ruleText.includes('bypass_r3_gate'))).toBe(false);
+  });
+
+  it('V43: strictly emits every candidate invariant with automatedPromotionAllowed=false', () => {
+    const engine = new EpisodeSleepEngine({ minClusterSize: 2 });
+    for (const pattern of ['stale_lockfile_read', 'missing_timeout_guard']) {
+      engine.recordEpisode({
+        kind: 'pitfall',
+        summary: `First occurrence of ${pattern}`,
+        failurePattern: pattern,
+        importanceBps: 7500,
+      });
+      engine.recordEpisode({
+        kind: 'failure',
+        summary: `Second occurrence of ${pattern}`,
+        failurePattern: pattern,
+        importanceBps: 8000,
+      });
+    }
+
+    const report = engine.runSleepConsolidation();
+    expect(report.synthesizedInvariants.length).toBe(2);
+    for (const proposal of report.synthesizedInvariants) {
+      expect(proposal.automatedPromotionAllowed).toBe(false);
+      expect(proposal.status).toBe('proposed');
+      expect(Object.isFrozen(proposal)).toBe(true);
+    }
   });
 });
